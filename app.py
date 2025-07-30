@@ -27,104 +27,48 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Configure OpenAI - Handle both old and new versions with robust error handling
-OPENAI_VERSION = "unknown"
-client = None
-
-# Verify OpenAI API key first
-if not os.getenv('OPENAI_API_KEY'):
-    st.error("❌ OpenAI API key not found! Please add OPENAI_API_KEY to your .env file.")
-    st.stop()
-
-# Try different OpenAI client initialization methods
+# Configure OpenAI - Handle both old and new versions
 try:
-    # Method 1: Try new version (v1.0+) with minimal configuration
+    # Try new version (v1.0+) first
     from openai import OpenAI
-    client = OpenAI(
-        api_key=os.getenv('OPENAI_API_KEY'),
-        timeout=60.0,
-        max_retries=3
-    )
+    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
     OPENAI_VERSION = "new"
     logger.info("Using OpenAI v1.0+ client")
-    
-except Exception as e:
-    logger.warning(f"Failed to initialize new OpenAI client: {str(e)}")
-    
-    try:
-        # Method 2: Try with even simpler configuration
-        from openai import OpenAI
-        client = OpenAI()  # Will use OPENAI_API_KEY environment variable automatically
-        OPENAI_VERSION = "new_simple"
-        logger.info("Using OpenAI v1.0+ client with simple configuration")
-        
-    except Exception as e2:
-        logger.warning(f"Failed to initialize simple OpenAI client: {str(e2)}")
-        
-        try:
-            # Method 3: Fall back to old version
-            import openai
-            openai.api_key = os.getenv('OPENAI_API_KEY')
-            OPENAI_VERSION = "old"
-            logger.info("Using OpenAI legacy client")
-            
-        except Exception as e3:
-            logger.error(f"Failed to initialize any OpenAI client: {str(e3)}")
-            st.error(f"""
-            ❌ **Failed to initialize OpenAI client**
-            
-            **Errors encountered:**
-            1. New client: {str(e)}
-            2. Simple client: {str(e2)}
-            3. Legacy client: {str(e3)}
-            
-            **Please try:**
-            - Update OpenAI library: `pip install openai>=1.3.0`
-            - Check your API key is valid
-            - Restart the application
-            """)
-            st.stop()
-
-# Test OpenAI connection with error handling
-def test_openai_connection():
-    """Test OpenAI API connection with multiple methods"""
-    try:
-        if OPENAI_VERSION in ["new", "new_simple"]:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=5,
-                timeout=30
-            )
-        elif OPENAI_VERSION == "old":
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=5,
-                request_timeout=30
-            )
-        else:
-            return False, "OpenAI client not properly initialized"
-            
-        return True, f"Connection successful (using {OPENAI_VERSION} client)"
-        
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"OpenAI connection test failed: {error_msg}")
-        
-        # Provide specific error guidance
-        if "api_key" in error_msg.lower():
-            return False, "Invalid API key. Please check your OPENAI_API_KEY."
-        elif "quota" in error_msg.lower() or "billing" in error_msg.lower():
-            return False, "API quota exceeded. Please check your OpenAI billing."
-        elif "timeout" in error_msg.lower():
-            return False, "Request timeout. Please check your internet connection."
-        else:
-            return False, f"Connection failed: {error_msg}"
+except ImportError:
+    # Fall back to old version
+    import openai
+    openai.api_key = os.getenv('OPENAI_API_KEY')
+    OPENAI_VERSION = "old" 
+    logger.info("Using OpenAI legacy client")
 
 # Model constants for backward compatibility
 VISION_MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-vision-preview"]
 ANALYSIS_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
+
+# Verify OpenAI API key
+if not os.getenv('OPENAI_API_KEY'):
+    st.error("❌ OpenAI API key not found! Please add OPENAI_API_KEY to your .env file.")
+    st.stop()
+
+# Test OpenAI connection
+def test_openai_connection():
+    """Test OpenAI API connection"""
+    try:
+        if OPENAI_VERSION == "new":
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=5
+            )
+        else:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=5
+            )
+        return True, "Connection successful"
+    except Exception as e:
+        return False, str(e)
 
 logger.info("Application started - OpenAI API key configured")
 
@@ -378,13 +322,12 @@ def extract_text_from_image_with_openai(base64_image, image_description="uploade
                 }
             ]
             
-            if OPENAI_VERSION in ["new", "new_simple"]:
+            if OPENAI_VERSION == "new":
                 response = client.chat.completions.create(
                     model=model,
                     messages=messages,
                     max_tokens=4000,
-                    temperature=0.1,
-                    timeout=60
+                    temperature=0.1
                 )
                 extracted_text = response.choices[0].message.content.strip()
             else:
@@ -392,8 +335,7 @@ def extract_text_from_image_with_openai(base64_image, image_description="uploade
                     model=model,
                     messages=messages,
                     max_tokens=4000,
-                    temperature=0.1,
-                    request_timeout=60
+                    temperature=0.1
                 )
                 extracted_text = response.choices[0].message.content.strip()
             
@@ -618,16 +560,8 @@ if st.session_state.stage == 'upload':
     st.markdown("Upload your legal document for AI-powered analysis and priority assessment.")
     
     # Simple API connection test
-    with st.expander("🔧 API Connection & Debug Info", expanded=False):
-        # Show OpenAI client info
-        col1, col2 = st.columns(2)
-        with col1:
-            st.info(f"**OpenAI Client:** {OPENAI_VERSION.replace('_', ' ').title()}")
-        with col2:
-            if OPENAI_VERSION == "unknown":
-                st.error("⚠️ OpenAI client not initialized properly")
-            else:
-                st.success("✅ OpenAI client initialized")
+    with st.expander("🔧 API Connection Test", expanded=False):
+        st.info(f"**OpenAI Library Version:** {OPENAI_VERSION.title()} ({'v1.0+' if OPENAI_VERSION == 'new' else 'Legacy'})")
         
         if st.button("🧪 Test OpenAI Connection"):
             with st.spinner("Testing OpenAI API connection..."):
@@ -635,24 +569,16 @@ if st.session_state.stage == 'upload':
                 if success:
                     st.success(f"✅ {message}")
                 else:
-                    st.error(f"❌ {message}")
+                    st.error(f"❌ Connection failed: {message}")
                     st.markdown("""
                     **Troubleshooting:**
                     - Check your OpenAI API key in the .env file
                     - Ensure you have credits in your OpenAI account
-                    - Try refreshing the page
-                    - Check OpenAI service status
+                    - Try upgrading OpenAI library: `pip install openai>=1.3.0`
                     """)
         
-        # Debug info
-        if st.checkbox("Show Debug Info"):
-            st.code(f"""
-Environment Info:
-- OpenAI Client Version: {OPENAI_VERSION}
-- Python Version: {st.__version__}
-- API Key Set: {'Yes' if os.getenv('OPENAI_API_KEY') else 'No'}
-- API Key Length: {len(os.getenv('OPENAI_API_KEY', '')) if os.getenv('OPENAI_API_KEY') else 0} chars
-            """.strip())
+        if OPENAI_VERSION == "old":
+            st.warning("⚠️ You're using an older OpenAI library. Consider upgrading: `pip install openai>=1.3.0`")
     
     uploaded_file = st.file_uploader(
         "Choose a file",
