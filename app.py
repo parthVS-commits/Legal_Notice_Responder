@@ -29,17 +29,27 @@ load_dotenv()
 
 # Configure OpenAI - Handle both old and new versions
 try:
-    # Try new version (v1.0+) first
+    # Try new version with minimal parameters to avoid proxy issues
     from openai import OpenAI
-    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+    client = OpenAI(
+        api_key=os.getenv('OPENAI_API_KEY'),
+        timeout=30.0  # Only essential parameters
+    )
     OPENAI_VERSION = "new"
     logger.info("Using OpenAI v1.0+ client")
-except ImportError:
-    # Fall back to old version
-    import openai
-    openai.api_key = os.getenv('OPENAI_API_KEY')
-    OPENAI_VERSION = "old" 
-    logger.info("Using OpenAI legacy client")
+except Exception as e:
+    logger.warning(f"New OpenAI client failed: {e}")
+    try:
+        # Fall back to legacy client
+        import openai
+        openai.api_key = os.getenv('OPENAI_API_KEY')
+        client = openai
+        OPENAI_VERSION = "old" 
+        logger.info("Using OpenAI legacy client")
+    except Exception as e2:
+        logger.error(f"All OpenAI initialization failed: {e2}")
+        st.error("❌ Could not initialize OpenAI client. Please check your API key and try again.")
+        st.stop()
 
 # Model constants for backward compatibility
 VISION_MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-vision-preview"]
