@@ -14,7 +14,7 @@ PyMuPDF==1.23.0
 python-docx==1.0.1
 
 # Image Processing & OCR
-Pillow==10.0.0
+Pillow>=9.5.0
 pytesseract==0.3.10
 
 # Additional compatibility
